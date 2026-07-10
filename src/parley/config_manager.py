@@ -7,7 +7,12 @@ from io import StringIO
 from ruamel.yaml import YAML
 
 from .utils import resolve_asset_path, beautify_hotkey, get_user_app_data_path, get_version
-from .platform import IS_MACOS
+
+# Plain sys check instead of `from .platform import IS_MACOS`: importing the
+# platform package pulls the full OS stack (pywin32 / pyobjc), which breaks
+# lean environments (CI smoke, tooling) that only need config parsing.
+import sys
+IS_MACOS = sys.platform == 'darwin'
 
 REPO_URL = "https://github.com/Parusann/parley"
 
