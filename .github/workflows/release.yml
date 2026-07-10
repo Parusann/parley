@@ -1,0 +1,191 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  # Pinned pyapp release — keep in sync with pyapp-build/setup-build-env.ps1.
+  PYAPP_VERSION: '0.29.0'
+  PYAPP_SHA256: '533004baf6d1d46ef15abad02e98881ec92291c024182a36b57931c8d66df5f'
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[noise]" pytest
+      - run: python -m pytest tests/ -q
+
+  # Build the Python wheel + sdist. This artifact feeds both PyPI publishing
+  # and the standalone .exe build below (so the .exe is built from the exact
+  # same wheel, with no dependency on PyPI propagation).
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - run: pip install build
+      - run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # Build standalone Windows executables with pyapp (https://ofek.dev/pyapp).
+  # The .exe is tiny: on first run it downloads a standalone CPython and
+  # pip-installs the embedded wheel + its dependencies, then runs the app.
+  # PYAPP_PROJECT_PATH embeds our local wheel, so this needs no PyPI.
+  build-exe:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      # GitHub's Windows runners ship a Rust toolchain (cargo) preinstalled.
+      - name: Fetch + verify pyapp source (pinned)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/ofek/pyapp/releases/download/v$env:PYAPP_VERSION/source.tar.gz" -OutFile pyapp.tar.gz
+          $hash = (Get-FileHash pyapp.tar.gz -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:PYAPP_SHA256) { throw "pyapp source hash mismatch: $hash" }
+          tar -xzf pyapp.tar.gz
+          $dir = Get-ChildItem -Directory -Filter "pyapp-v*" | Select-Object -First 1
+          if (-not $dir) { $dir = Get-ChildItem -Directory -Filter "pyapp-*" | Select-Object -First 1 }
+          "PYAPP_DIR=$($dir.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Embed Parley icon into pyapp
+        shell: pwsh
+        run: |
+          Copy-Item "src\parley\platform\windows\assets\parley-icon.ico" "$env:PYAPP_DIR\icon.ico" -Force
+          $cargo = Get-Content "$env:PYAPP_DIR\Cargo.toml" -Raw
+          if ($cargo -notmatch "winresource") {
+            $cargo = $cargo -replace '\[build-dependencies\]', "[build-dependencies]`nwinresource = `"0.1`""
+            Set-Content "$env:PYAPP_DIR\Cargo.toml" $cargo -NoNewline
+          }
+          $buildrs = Get-Content "$env:PYAPP_DIR\build.rs" -Raw
+          if ($buildrs -notmatch "winresource") {
+            $patch = @'
+
+    if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon("icon.ico");
+        res.compile().expect("Failed to compile Windows resources");
+    }
+'@
+            $buildrs = $buildrs -replace '(fn main\(\) \{)', "`$1$patch"
+            Set-Content "$env:PYAPP_DIR\build.rs" $buildrs -NoNewline
+          }
+      - name: Build parley.exe (console) + parley-hideable.exe (GUI subsystem)
+        shell: pwsh
+        env:
+          PYAPP_PYTHON_VERSION: '3.12'
+          PYAPP_EXEC_CODE: 'from parley.main import main; main()'
+          PYAPP_PASS_LOCATION: '1'
+          PYAPP_SELF_COMMAND: 'self'
+        run: |
+          $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
+          $env:PYAPP_PROJECT_PATH = $wheel
+          Write-Host "Embedding wheel: $wheel"
+          New-Item -ItemType Directory -Force -Path exe | Out-Null
+
+          Push-Location $env:PYAPP_DIR
+          cargo build --release
+          if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+          Pop-Location
+          Copy-Item "$env:PYAPP_DIR\target\release\pyapp.exe" "exe\parley.exe" -Force
+
+          $env:PYAPP_IS_GUI = 'true'
+          Push-Location $env:PYAPP_DIR
+          cargo build --release
+          if ($LASTEXITCODE -ne 0) { throw "cargo build (hideable) failed" }
+          Pop-Location
+          Copy-Item "$env:PYAPP_DIR\target\release\pyapp.exe" "exe\parley-hideable.exe" -Force
+
+          Get-ChildItem exe | Format-List Name, Length
+      - name: Compute checksums
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem exe\*.exe) {
+            $hash = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($f.Name)" | Out-File -FilePath "$($f.FullName).sha256" -Encoding ascii
+            Write-Host "$($f.Name): $hash"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe
+          path: exe/
+
+  publish-pypi:
+    needs: build
+    # Skip PyPI for prerelease tags (anything with a hyphen, e.g. v1.0.1-rc1).
+    # Those are for testing the pipeline / sharing early builds, not for release.
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: [build, build-exe]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: exe
+          path: exe/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+            exe/*
+          generate_release_notes: true
+          # Hyphenated tags (v1.0.1-rc1, v1.1.0-beta) are marked prerelease.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            ## Install
+
+            **Option 1 — Standalone Windows app (no Python needed)**
+            Download `parley.exe` below and double-click it. Windows
+            SmartScreen will warn (unsigned app) — click **More info → Run anyway**.
+            First launch takes a few minutes: it sets up a private Python runtime,
+            then downloads the default Whisper `base` model (~141 MB). After that
+            it runs **100% offline**.
+
+            **Option 2 — pip (Windows / macOS, needs Python 3.11+)**
+            ```bash
+            pip install parley==${{ needs.build.outputs.version }}
+            ```
+            Update later with `pip install --upgrade parley`.
+
+            **AMD GPU acceleration (optional):** `parley --setup-vulkan`
+
+            ---
+            Verify downloads with the matching `.sha256` files.

@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+title: "Parley"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Natheeswaran
+    given-names: Parusan
+    alias: Parusann
+repository-code: "https://github.com/Parusann/parley"
+url: "https://github.com/Parusann/parley"
+abstract: >-
+  Parley is a free, fully offline, push-to-talk voice dictation tool for
+  Windows. It uses OpenAI Whisper (via faster-whisper or a GPU-accelerated
+  whisper.cpp Vulkan server) to transcribe speech to text at the cursor, with
+  global hotkeys, voice commands, vocabulary correction, per-app rules, and
+  optional local LLM polish via Ollama. No audio or transcript data leaves
+  the user's machine. Parley builds on drajb/whisper-local and its parent
+  PinW/whisper-key-local.
+keywords:
+  - speech-to-text
+  - dictation
+  - whisper
+  - voice-typing
+  - transcription
+  - privacy
+  - offline
+  - local-ai
+  - accessibility
+license: MIT
+version: 1.0.0

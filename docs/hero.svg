@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" role="img" aria-label="Parley: hold a key, speak, text appears at your cursor — fully offline">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0e1412"/>
+      <stop offset="100%" stop-color="#161d1a"/>
+    </linearGradient>
+    <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2e3a34"/>
+      <stop offset="100%" stop-color="#4cc38a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="900" height="220" rx="16" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="899" height="219" rx="16" fill="none" stroke="#2a342f"/>
+
+  <!-- Wordmark -->
+  <text x="64" y="98" font-family="Segoe UI, system-ui, sans-serif" font-size="56" font-weight="700" fill="#e8edea">Parley</text>
+  <text x="64" y="138" font-family="Segoe UI, system-ui, sans-serif" font-size="19" fill="#9ba8a1">Hold a key. Speak. Your words land at the cursor.</text>
+  <text x="64" y="166" font-family="Segoe UI, system-ui, sans-serif" font-size="19" fill="#9ba8a1">Free, private, and 100% offline — powered by Whisper.</text>
+
+  <!-- Key chip -->
+  <rect x="64" y="182" width="46" height="26" rx="6" fill="#1b2420" stroke="#2a342f"/>
+  <text x="87" y="200" font-family="Cascadia Mono, Consolas, monospace" font-size="13" font-weight="700" fill="#4cc38a" text-anchor="middle">F10</text>
+  <text x="122" y="200" font-family="Segoe UI, system-ui, sans-serif" font-size="14" fill="#66716b">push-to-talk · voice commands · AI transforms</text>
+
+  <!-- Waveform pill -->
+  <g transform="translate(560, 76)">
+    <rect x="0" y="0" width="280" height="68" rx="34" fill="#161d1a" stroke="#2a342f"/>
+    <g stroke="url(#trail)" stroke-width="4" stroke-linecap="round">
+      <line x1="28"  y1="28" x2="28"  y2="40"/>
+      <line x1="38"  y1="24" x2="38"  y2="44"/>
+      <line x1="48"  y1="30" x2="48"  y2="38"/>
+      <line x1="58"  y1="20" x2="58"  y2="48"/>
+      <line x1="68"  y1="26" x2="68"  y2="42"/>
+      <line x1="78"  y1="16" x2="78"  y2="52"/>
+      <line x1="88"  y1="24" x2="88"  y2="44"/>
+      <line x1="98"  y1="12" x2="98"  y2="56"/>
+      <line x1="108" y1="22" x2="108" y2="46"/>
+      <line x1="118" y1="18" x2="118" y2="50"/>
+      <line x1="128" y1="26" x2="128" y2="42"/>
+    </g>
+    <text x="152" y="40" font-family="Segoe UI, system-ui, sans-serif" font-size="15" fill="#e8edea">Listening…</text>
+  </g>
+</svg>

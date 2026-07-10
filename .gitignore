@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+.Python
+
+# Build artifacts
+build/
+dist/
+wheels/
+sdist/
+MANIFEST
+
+# Environments
+.venv/
+venv/
+env/
+.python-version.local
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# AI assistant tooling (local only — never ships in the repo)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+GEMINI.md
+AGENTS.md
+.cursorrules
+
+# App runtime artifacts (downloaded/generated, never committed)
+runtime/
+pyapp-build/pyapp-source/
+pyapp-build/pyapp-source.tar.gz
+pyapp-build/build-config.json
+.temp/
+*.log
+start_parley.vbs
+
+# Local user files
+*.local.json
+*.local.yaml

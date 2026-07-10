@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    # Windows is the primary platform; macOS is supported. Run the smoke suite
+    # on all three so platform-specific import/path regressions surface in CI.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Smoke tests deliberately avoid the heavy ML stack (faster-whisper, ctranslate2)
+      # but a handful need numpy and pyperclip via transitive module-level imports.
+      # Keep this list tight — anything heavier should be skipped behind a feature flag.
+      - run: pip install ruamel.yaml numpy pyperclip
+      - run: python -m unittest tests.test_smoke -v
+
+  full:
+    # The real deal: full dependency install + the entire pytest suite on the
+    # primary platform, exactly what a contributor runs locally.
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Parley (full runtime deps)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[noise]" pytest
+      - name: Run full test suite
+        run: python -m pytest tests/ -q
+      - name: CLI wiring smoke
+        run: python -X utf8 -m parley.main --version

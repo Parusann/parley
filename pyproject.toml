@@ -1,0 +1,97 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parley"
+version = "1.0.0"
+description = "Push-to-talk, fully offline voice dictation for Windows. Hold a hotkey, speak, get text at the cursor. 100% local, GPU-accelerated, powered by Whisper."
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "Parusan Natheeswaran", email = "paruaymen@gmail.com"}
+]
+maintainers = [
+    {name = "Parusan Natheeswaran", email = "paruaymen@gmail.com"}
+]
+keywords = [
+    "dictation", "speech-to-text", "whisper", "voice-typing",
+    "transcription", "ai-dictation", "local-ai", "offline",
+    "push-to-talk", "voice-recognition", "accessibility",
+    "faster-whisper", "whisper-cpp", "vulkan", "privacy",
+    "self-hosted", "wispr-flow", "ollama", "voice-commands", "windows"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Office/Business",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.11"
+dependencies = [
+    # Cross-platform
+    "faster-whisper>=1.2.1",
+    "ctranslate2==4.7.1",
+    "numpy>=1.24.0",
+    "rapidfuzz>=3.0.0",
+    "soxr>=0.3.0",
+    "sherpa-onnx>=1.11.3",
+    "sounddevice>=0.4.6",
+    "pyperclip>=1.8.2",
+    "ruamel.yaml>=0.18.14",
+    "pystray>=0.19.5",
+    "Pillow>=10.0.0",
+    "hf-xet>=1.1.5",
+    "playsound3>=2.0",
+    "ten-vad>=1.0.6",
+
+    # Windows-only
+    "global-hotkeys>=0.1.7; sys_platform=='win32'",
+    "pywin32>=306; sys_platform=='win32'",
+
+    # macOS-only
+    "pyobjc-framework-Quartz; sys_platform=='darwin'",
+    "pyobjc-framework-ApplicationServices; sys_platform=='darwin'",
+]
+
+[project.optional-dependencies]
+# Opt-in whisper.cpp in-process backend (set `whisper.backend: whisper_cpp`).
+# Models auto-download from huggingface.co/ggerganov/whisper.cpp on first use.
+whispercpp = ["pywhispercpp>=1.2"]
+
+# Spectral noise suppression via noisereduce (set `audio.noise_suppression.enabled: true`)
+noise = ["noisereduce>=3.0.0"]
+
+# GPU backends need artifacts pip cannot ship (a Vulkan whisper-server binary,
+# ROCm CTranslate2 wheels from an external index). `parley --setup-vulkan` and
+# docs/gpu-setup.md cover them; these extras exist so `pip install parley[vulkan]`
+# at least succeeds and points users at the right doorway via --doctor.
+vulkan = []
+rocm = []
+
+[project.scripts]
+parley = "parley.main:main"
+
+[project.urls]
+Homepage = "https://github.com/Parusann/parley"
+Repository = "https://github.com/Parusann/parley"
+Documentation = "https://github.com/Parusann/parley#readme"
+Issues = "https://github.com/Parusann/parley/issues"
+Changelog = "https://github.com/Parusann/parley/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"parley" = ["assets/**/*", "platform/*/assets/*", "config.defaults.yaml", "commands.defaults.yaml", "profiles.defaults.yaml", "app_rules.defaults.yaml", "transforms.defaults.yaml"]
