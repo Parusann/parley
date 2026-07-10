@@ -71,7 +71,7 @@ dependencies = [
 whispercpp = ["pywhispercpp>=1.2"]
 
 # Spectral noise suppression via noisereduce (set `audio.noise_suppression.enabled: true`)
-noise = ["noisereduce>=3.0.0"]
+noise = ["noisereduce>=3.0.3"]
 
 # GPU backends need artifacts pip cannot ship (a Vulkan whisper-server binary,
 # ROCm CTranslate2 wheels from an external index). `parley --setup-vulkan` and
