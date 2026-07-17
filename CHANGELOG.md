@@ -33,10 +33,17 @@ Parley builds on the excellent MIT-licensed
   optional LLM polish.
 - **Optional local LLM cleanup** via Ollama — removes filler words without
   rephrasing you; degrades gracefully to the raw transcript when Ollama is down.
-- **A calm, cohesive UI**: an acrylic glass waveform pill (with live streaming
-  text) as the hero surface, plus themed settings, history, cheat-sheet, and
-  dictionary windows — dark/light aware, per-monitor DPI aware, and
-  reduced-motion aware.
+- **A "midnight glass" UI**: a deep-navy palette with one violet→blue→cyan
+  accent family, simulated-glass cards, rounded canvas-drawn controls, and
+  Segoe UI Variable type on every surface — all flowing from `theme.py`, in
+  matching dark and light themes. The hero recording pill keeps its real
+  Windows 11 acrylic blur and gains a glowing voice-reactive mic orb, a
+  gradient waveform, slide in/out motion, and streaming text that fits by
+  pixel measurement instead of clipping at a fixed length. Alerts use themed
+  dialogs instead of stock message boxes, list windows have slim rounded
+  scrollbars and consistent Esc-to-close, tray icons are drawn from the
+  palette, and everything stays per-monitor DPI aware, Windows 10 safe, and
+  OS reduced-motion aware.
 - **Per-app rules**: formatting and paste behavior that adapt to the focused
   application (terminals, password fields, code editors).
 - **Voice commands & AI transforms**: hotkey-routed command mode and

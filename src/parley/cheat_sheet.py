@@ -96,25 +96,40 @@ def _run(config_manager, transforms_manager):
     pal = theme.init_window(root, "Parley — Hotkey Cheat Sheet")
     root.geometry(f"{px(660)}x{px(560)}")
     root.resizable(False, True)
-    try:
-        root.attributes('-topmost', True)
-    except Exception:
-        pass
 
     header = tk.Frame(root, bg=pal['bg'])
     header.pack(fill='x', padx=px(20), pady=(px(18), px(4)))
     theme.heading(header, "Your current hotkeys", pal).pack(anchor='w')
-    theme.caption(header, "Change these in Settings → Hotkeys (changes take effect on next launch).",
-                  pal).pack(anchor='w', pady=(0, px(4)))
+    hdr_row = tk.Frame(header, bg=pal['bg'])
+    hdr_row.pack(fill='x', pady=(0, px(4)))
+    theme.caption(hdr_row, "Change these in Settings → Hotkeys.",
+                  pal).pack(side='left')
+    theme.restart_chip(hdr_row, pal).pack(side='left', padx=(px(GAP_S), 0))
 
-    body = tk.Frame(root, bg=pal['bg'])
-    body.pack(fill='both', expand=True, padx=px(20), pady=(px(6), px(10)))
+    # Scrollable body — transform lists can overflow any fixed height, so
+    # rows live on a canvas-backed frame with the themed scrollbar.
+    wrap = tk.Frame(root, bg=pal['bg'])
+    wrap.pack(fill='both', expand=True, padx=px(20), pady=(px(6), px(10)))
+    scroll_canvas = tk.Canvas(wrap, bg=pal['bg'], highlightthickness=0, bd=0)
+    scroll = theme.scrollbar(wrap, scroll_canvas.yview, pal)
+    scroll_canvas.configure(yscrollcommand=scroll.set)
+    scroll.pack(side='right', fill='y')
+    scroll_canvas.pack(side='left', fill='both', expand=True)
+    body = tk.Frame(scroll_canvas, bg=pal['bg'])
+    body_item = scroll_canvas.create_window(0, 0, window=body, anchor='nw')
+    body.bind('<Configure>',
+              lambda e: scroll_canvas.configure(scrollregion=scroll_canvas.bbox('all')))
+    scroll_canvas.bind('<Configure>',
+                       lambda e: scroll_canvas.itemconfigure(body_item, width=e.width))
+    # Sign-symmetric for precision touchpads (±30 deltas), not just ±120 mice.
+    root.bind('<MouseWheel>',
+              lambda e: scroll_canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units'))
 
-    # One flat raised row per binding: name | key chip | what it does.
+    # One rounded card row per binding: name | key chip | what it does.
     def _row(parent, label, key, desc):
-        row = tk.Frame(parent, bg=pal['bg_raised'])
+        row = theme.card(parent, pal, radius=theme.RADIUS_CTRL)
         row.pack(fill='x', pady=px(3))
-        inner = tk.Frame(row, bg=pal['bg_raised'])
+        inner = tk.Frame(row.inner, bg=pal['bg_raised'])
         inner.pack(fill='x', padx=px(GAP_M), pady=px(GAP_S))
         tk.Label(inner, text=label, bg=pal['bg_raised'], fg=pal['fg'],
                  font=theme.font(10, 'bold'),
@@ -126,7 +141,7 @@ def _run(config_manager, transforms_manager):
             chip.configure(fg=pal['fg_faint'])
         chip.pack(side='left', padx=(0, px(10)))
         # Wrap short of the widest chip row so long descriptions never clip.
-        theme.caption(inner, desc, pal, wrap=250,
+        theme.caption(inner, desc, pal, wrap=240,
                       bg=pal['bg_raised']).pack(side='left', fill='x', expand=True)
 
     for label, key, desc in items:

@@ -59,10 +59,6 @@ def show_history():
     pal = theme.init_window(root, "Transcript History — Parley")
     root.geometry(f"{px(680)}x{px(520)}")
     root.resizable(True, True)
-    try:
-        root.attributes('-topmost', True)
-    except Exception:
-        pass
 
     # ── search bar ──
     top = tk.Frame(root, bg=pal['bg'])
@@ -73,40 +69,42 @@ def show_history():
     search_entry.pack(side='left', fill='x', expand=True, padx=(px(GAP_S), 0), ipady=px(4))
     search_entry.focus_set()
 
-    # ── listbox (or the empty-state hint when there is nothing to list) ──
-    mid = tk.Frame(root, bg=pal['bg'])
+    # ── list card (or the empty-state hint when there is nothing to list) ──
+    mid = theme.card(root, pal)
     mid.pack(fill='both', expand=True, padx=px(GAP_M), pady=px(4))
+    list_frame = tk.Frame(mid.inner, bg=pal['bg_raised'])
+    list_frame.pack(fill='both', expand=True, padx=px(4), pady=px(4))
 
-    scroll = tk.Scrollbar(mid)
-    listbox = tk.Listbox(mid, yscrollcommand=scroll.set,
+    listbox = tk.Listbox(list_frame,
                          bg=pal['bg_raised'], fg=pal['fg'],
                          selectbackground=pal['selection'],
                          selectforeground=pal['fg'],
                          relief='flat', bd=0,
-                         highlightthickness=px(1),
-                         highlightbackground=pal['border'],
-                         highlightcolor=pal['accent'],
+                         highlightthickness=0,
                          font=theme.font(9, mono=True),
                          activestyle='none')
-    scroll.config(command=listbox.yview)
+    scroll = theme.scrollbar(list_frame, listbox.yview, pal)
+    listbox.configure(yscrollcommand=scroll.set)
 
     if all_entries:
         scroll.pack(side='right', fill='y')
-        listbox.pack(fill='both', expand=True)
+        listbox.pack(side='left', fill='both', expand=True)
     else:
         # A blank list looked broken — say what to do instead.
-        tk.Label(mid, text="No transcripts yet — hold your hotkey and speak.",
-                 bg=pal['bg'], fg=pal['fg_dim'],
+        tk.Label(list_frame, text="No transcripts yet — hold your hotkey and speak.",
+                 bg=pal['bg_raised'], fg=pal['fg_dim'],
                  font=theme.font(10)).pack(expand=True)
 
     # ── preview pane ──
+    preview_card = theme.card(root, pal)
+    preview_card.pack(fill='x', padx=px(GAP_M), pady=(0, px(4)))
     preview_var = tk.StringVar(value='')
-    preview = tk.Label(root, textvariable=preview_var,
+    preview = tk.Label(preview_card.inner, textvariable=preview_var,
                        bg=pal['bg_raised'], fg=pal['fg_dim'],
                        font=theme.font(9), anchor='w',
-                       wraplength=px(620), justify='left',
+                       wraplength=px(600), justify='left',
                        padx=px(GAP_S), pady=px(4))
-    preview.pack(fill='x', padx=px(GAP_M), pady=(0, px(4)))
+    preview.pack(fill='x')
 
     # ── status + buttons ──
     status_var = tk.StringVar()
@@ -161,6 +159,10 @@ def show_history():
 
     listbox.bind('<<ListboxSelect>>', _on_select)
     search_var.trace_add('write', lambda *_: _refresh(search_var.get()))
+
+    # Esc / Ctrl+W close the window, same as every other Parley surface.
+    root.bind('<Escape>', lambda e: root.destroy())
+    root.bind('<Control-w>', lambda e: root.destroy())
 
     if not all_entries:
         status_var.set('No transcripts yet — start dictating!')

@@ -120,12 +120,8 @@ def show_add_word_dialog(on_added=None):
             with _dialog_lock:
                 _dialog_root = root
             pal = theme.init_window(root, "Parley — Add Word")
-            try:
-                root.attributes('-topmost', True)
-            except Exception:
-                pass
 
-            w, h = px(400), px(195)
+            w, h = px(400), px(210)
             try:
                 root.update_idletasks()
                 sw = root.winfo_screenwidth()
@@ -137,10 +133,8 @@ def show_add_word_dialog(on_added=None):
             outer = tk.Frame(root, bg=pal['bg'], padx=px(14), pady=px(GAP_M))
             outer.pack(fill='both', expand=True)
 
-            tk.Label(outer, text="Add to your hotword dictionary",
-                     bg=pal['bg'], fg=pal['accent'],
-                     font=theme.font(11, 'bold'),
-                     anchor='w').pack(fill='x')
+            theme.heading(outer, "Add to your hotword dictionary",
+                          pal, size=12).pack(fill='x')
             theme.caption(outer, "Names, jargon, acronyms — anything Whisper mishears",
                           pal).pack(fill='x', pady=(px(2), px(10)))
 
@@ -150,10 +144,14 @@ def show_add_word_dialog(on_added=None):
             entry.pack(fill='x', ipady=px(6), pady=(0, px(GAP_M)))
             entry.focus_set()
 
+            status_row = tk.Frame(outer, bg=pal['bg'])
+            status_row.pack(fill='x', pady=(0, px(GAP_S)))
             status_var = tk.StringVar(value="")
-            status = theme.caption(outer, "", pal)
+            status = theme.caption(status_row, "", pal)
             status.configure(textvariable=status_var)
-            status.pack(fill='x', pady=(0, px(GAP_S)))
+            status.pack(side='left')
+            # The one shared restart affordance — appears after the first add.
+            restart_note = theme.restart_chip(status_row, pal)
 
             def commit(_=None):
                 word = entry_var.get().strip()
@@ -162,7 +160,8 @@ def show_add_word_dialog(on_added=None):
                     return
                 ok = add_word(word)
                 if ok:
-                    status_var.set(f"Added '{word}'. Restart Parley to apply.")
+                    status_var.set(f"Added '{word}'.")
+                    restart_note.pack(side='left', padx=(px(GAP_S), 0))
                     entry_var.set("")
                     if on_added:
                         try: on_added(word)

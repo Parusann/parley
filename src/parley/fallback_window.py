@@ -63,6 +63,8 @@ class FallbackWindow:
             theme.ensure_dpi_aware()
             root = tk.Tk()
             pal = theme.init_window(root, "Parley — Dictation captured")
+            # This is a delivery-failure alert — the one window that SHOULD
+            # fight for attention, so it keeps -topmost (others don't).
             try:
                 root.attributes('-topmost', True)
             except Exception:
@@ -87,31 +89,35 @@ class FallbackWindow:
             outer = tk.Frame(root, bg=pal['bg'], bd=0, highlightthickness=0)
             outer.pack(fill='both', expand=True, padx=px(14), pady=px(GAP_M))
 
-            tk.Label(outer, text="Dictation captured",
-                     bg=pal['bg'], fg=pal['accent'],
-                     font=theme.font(11, 'bold'),
-                     anchor='w').pack(fill='x')
+            theme.heading(outer, "Dictation captured", pal, size=12).pack(fill='x')
 
             theme.caption(outer, reason, pal,
                           wrap=WIDTH - 32).pack(fill='x', pady=(px(2), px(GAP_S)))
 
             text_card = theme.card(outer, pal)
             text_card.pack(fill='both', expand=True, pady=(0, px(10)))
+            text_frame = tk.Frame(text_card.inner, bg=pal['bg_raised'])
+            text_frame.pack(fill='both', expand=True, padx=px(4), pady=px(4))
 
             text_widget = tk.Text(
-                text_card.inner, wrap='word',
-                bg=pal['bg_input'], fg=pal['fg'],
+                text_frame, wrap='word',
+                bg=pal['bg_raised'], fg=pal['fg'],
                 insertbackground=pal['fg'],
                 selectbackground=pal['selection'], selectforeground=pal['fg'],
                 bd=0, highlightthickness=0,
-                padx=px(10), pady=px(GAP_S),
+                padx=px(8), pady=px(GAP_S),
                 font=theme.font(10),
                 relief='flat',
                 # Request only as many rows as the transcript needs — Text's
                 # default 24-row request would starve the button row below it.
                 height=line_count,
             )
-            text_widget.pack(fill='both', expand=True)
+            # Long transcripts overflow the 500px window clamp — give the text
+            # a themed scrollbar instead of silently hiding the tail.
+            scroll = theme.scrollbar(text_frame, text_widget.yview, pal)
+            text_widget.configure(yscrollcommand=scroll.set)
+            scroll.pack(side='right', fill='y')
+            text_widget.pack(side='left', fill='both', expand=True)
             text_widget.insert('1.0', transcript)
             text_widget.tag_add('sel', '1.0', 'end-1c')
 

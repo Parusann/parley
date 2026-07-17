@@ -66,16 +66,20 @@ class SystemTray:
             }
         
     def _create_fallback_icon(self, state: str) -> Image.Image:
-        colors = {
-            'idle': (128, 128, 128),      # Gray
-            'recording': (34, 139, 34),   # Green  
-            'processing': (255, 165, 0)   # Orange
-        }
-        
-        color = colors.get(state, (128, 128, 128))  # Default to gray
-        icon = Image.new('RGBA', (16, 16), color + (255,))
+        # Palette-derived even in the fallback path — no out-of-theme colors.
+        from . import theme
 
-        return icon
+        def rgb(hex_color):
+            return tuple(int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+
+        pal = theme.palette()
+        colors = {
+            'idle': rgb(pal['fg_faint']),
+            'recording': rgb(pal['ok']),
+            'processing': rgb(pal['warn']),
+        }
+        color = colors.get(state, rgb(pal['fg_faint']))
+        return Image.new('RGBA', (16, 16), color + (255,))
     
     def _build_model_menu_items(self, current_model: str, is_model_loading: bool) -> list:
         items = []
@@ -230,6 +234,10 @@ class SystemTray:
 
             auto_paste_enabled = self.config_manager.get_setting('clipboard', 'auto_paste')
             current_model = self.config_manager.get_setting('whisper', 'model')
+            try:
+                current_language = self.state_manager.get_current_language()
+            except Exception:
+                current_language = 'auto'
 
             available_hosts = self.state_manager.get_available_audio_hosts()
             current_host = self.state_manager.get_current_audio_host()
@@ -289,48 +297,22 @@ class SystemTray:
                 menu_items.append(pystray.Menu.SEPARATOR)
 
             from . import autostart
+
+            # ── Windows & everyday actions ──
             menu_items += [
                 pystray.MenuItem("Settings...", self._open_settings_window),
                 pystray.MenuItem("Hotkey cheat sheet...", self._open_cheat_sheet),
                 pystray.MenuItem("Transcript history...", self._open_history_window),
-            ]
-            if autostart.is_supported():
-                menu_items.append(pystray.MenuItem(
-                    "Start on login",
-                    self._toggle_autostart,
-                    checked=lambda item: autostart.is_enabled(),
-                ))
-            menu_items += [
-                pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Add word to dictionary...", self._open_add_word_dialog),
-                pystray.MenuItem("Edit settings file...", self._open_config_file),
-                pystray.MenuItem("Open config folder...", self._open_config_folder),
-                pystray.MenuItem("Open commands file...", self._open_commands_file) if voice_commands_enabled else None,
-                # Diagnostics folded into a submenu so the top level stays scannable.
-                pystray.MenuItem("Help & diagnostics", pystray.Menu(
-                    pystray.MenuItem("Run diagnostics...", self._run_doctor_in_window),
-                    pystray.MenuItem("Run self-test...", self._run_selftest_in_window),
-                    pystray.MenuItem("Bundle logs for bug report...", self._bundle_logs_action),
-                    pystray.MenuItem("View stats...", self._run_stats_in_window),
-                    pystray.MenuItem("Open log file...", self._open_log_file),
-                    pystray.MenuItem("Open model cache...", self._open_model_cache),
-                )),
                 pystray.Menu.SEPARATOR,
+            ]
+
+            # ── Live state: model / language / profile / audio / delivery ──
+            menu_items += [
+                pystray.MenuItem(f"Model: {current_model.title()}",
+                                 pystray.Menu(*model_sub_menu_items)),
                 pystray.MenuItem(
-                    "Audio Host",
-                    pystray.Menu(*audio_host_items)
-                ) if audio_host_items else None,
-                pystray.MenuItem(
-                    f"Audio Source",
-                    pystray.Menu(*audio_device_items)
-                ),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem("Auto-paste", lambda icon, item: self._set_transcription_mode(True), radio=True, checked=lambda item: auto_paste_enabled),
-                pystray.MenuItem("Copy to clipboard", lambda icon, item: self._set_transcription_mode(False), radio=True, checked=lambda item: not auto_paste_enabled),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(f"Model: {current_model.title()}", pystray.Menu(*model_sub_menu_items)),
-                pystray.MenuItem(
-                    f"Language: {self.state_manager.get_current_language()}",
+                    f"Language: {current_language}",
                     pystray.Menu(*self._build_language_menu())
                 ),
             ]
@@ -342,6 +324,22 @@ class SystemTray:
                     f"Profile: {active_profile.title()}",
                     pystray.Menu(*profile_items)
                 ))
+
+            # Host + device folded under one "Audio input" entry.
+            audio_sub = []
+            if audio_host_items:
+                audio_sub.append(pystray.MenuItem("Host", pystray.Menu(*audio_host_items)))
+            audio_sub.append(pystray.MenuItem("Device", pystray.Menu(*audio_device_items)))
+            menu_items.append(pystray.MenuItem("Audio input", pystray.Menu(*audio_sub)))
+
+            menu_items.append(pystray.MenuItem("Delivery", pystray.Menu(
+                pystray.MenuItem("Auto-paste at cursor",
+                                 lambda icon, item: self._set_transcription_mode(True),
+                                 radio=True, checked=lambda item: auto_paste_enabled),
+                pystray.MenuItem("Copy to clipboard only",
+                                 lambda icon, item: self._set_transcription_mode(False),
+                                 radio=True, checked=lambda item: not auto_paste_enabled),
+            )))
 
             menu_items.append(pystray.MenuItem(
                 "Overlay position",
@@ -362,9 +360,34 @@ class SystemTray:
 
             recent_items = self._build_recent_transcriptions_menu()
             if recent_items:
-                menu_items.append(pystray.Menu.SEPARATOR)
                 menu_items.append(pystray.MenuItem("Recent", pystray.Menu(*recent_items)))
 
+            # ── Files, diagnostics, lifecycle ──
+            config_file_items = [
+                pystray.MenuItem("Edit settings file...", self._open_config_file),
+                pystray.MenuItem("Open config folder...", self._open_config_folder),
+            ]
+            if voice_commands_enabled:
+                config_file_items.append(
+                    pystray.MenuItem("Open commands file...", self._open_commands_file))
+            menu_items += [
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Config files", pystray.Menu(*config_file_items)),
+                pystray.MenuItem("Help & diagnostics", pystray.Menu(
+                    pystray.MenuItem("Run diagnostics...", self._run_doctor_in_window),
+                    pystray.MenuItem("Run self-test...", self._run_selftest_in_window),
+                    pystray.MenuItem("Bundle logs for bug report...", self._bundle_logs_action),
+                    pystray.MenuItem("View stats...", self._run_stats_in_window),
+                    pystray.MenuItem("Open log file...", self._open_log_file),
+                    pystray.MenuItem("Open model cache...", self._open_model_cache),
+                )),
+            ]
+            if autostart.is_supported():
+                menu_items.append(pystray.MenuItem(
+                    "Start on login",
+                    self._toggle_autostart,
+                    checked=lambda item: autostart.is_enabled(),
+                ))
             menu_items.extend([
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Restart Parley", self._restart_application_from_tray),

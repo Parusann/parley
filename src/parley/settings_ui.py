@@ -53,7 +53,7 @@ def reset_settings_preserving_hotwords(settings_path) -> list:
 def run_settings_window():
     try:
         import tkinter as tk
-        from tkinter import ttk, messagebox, filedialog
+        from tkinter import ttk, filedialog
     except ImportError:
         logger.error("Tkinter not available")
         return
@@ -69,10 +69,6 @@ def run_settings_window():
     pal = theme.init_window(root, "Parley — Settings")
     root.geometry(f"{px(600)}x{px(680)}")
     root.minsize(px(560), px(560))
-    try:
-        root.attributes('-topmost', True)
-    except Exception:
-        pass
 
     _apply_style(root)
 
@@ -106,37 +102,38 @@ def run_settings_window():
 
     def save():
         _save_all(cm, vars_)
-        messagebox.showinfo(
-            "Saved",
+        theme.dialog(
+            root, "Saved",
             "Settings saved.\n\n"
-            "• Formatting / post-processing changes apply on your next dictation.\n"
-            "• Hotkey, model, and audio-device changes take effect after you "
-            "restart Parley (tray → Restart).",
-            parent=root,
+            "Formatting and post-processing changes apply on your next "
+            "dictation. Hotkey, model, and audio-device changes need a "
+            "restart (tray → Restart Parley).",
+            tone='ok', chip_text=theme.RESTART_NOTE,
         )
         root.destroy()
 
     def reset_defaults():
-        if not messagebox.askyesno(
-            "Reset all settings?",
-            "This will reset every setting to its default value.\n\nYour hotwords, commands, transforms, and transcript history will NOT be affected.\n\nContinue?",
-            parent=root, icon='warning',
-        ):
+        if theme.dialog(
+            root, "Reset all settings?",
+            "This will reset every setting to its default value.\n\n"
+            "Your hotwords, commands, transforms, and transcript history "
+            "will NOT be affected.",
+            buttons=('Reset', 'Cancel'), danger=True, tone='warn',
+        ) != 'Reset':
             return
         try:
             from .utils import get_user_app_data_path
             import os
             settings_path = os.path.join(get_user_app_data_path(), 'user_settings.yaml')
             reset_settings_preserving_hotwords(settings_path)
-            messagebox.showinfo(
-                "Reset complete",
-                "Settings reset to defaults (your dictionary was kept). "
-                "Restart Parley to apply.",
-                parent=root,
+            theme.dialog(
+                root, "Reset complete",
+                "Settings reset to defaults (your dictionary was kept).",
+                tone='ok', chip_text=theme.RESTART_NOTE,
             )
             root.destroy()
         except Exception as e:
-            messagebox.showerror("Reset failed", str(e), parent=root)
+            theme.dialog(root, "Reset failed", str(e), tone='error')
 
     def export_settings_action():
         target = filedialog.askdirectory(
@@ -148,11 +145,13 @@ def run_settings_window():
         try:
             from .settings_io import export_settings
             if export_settings(target) == 0:
-                messagebox.showinfo("Exported", f"Settings backed up to:\n{target}", parent=root)
+                theme.dialog(root, "Exported",
+                             f"Settings backed up to:\n{target}", tone='ok')
             else:
-                messagebox.showerror("Export failed", "See console for details.", parent=root)
+                theme.dialog(root, "Export failed",
+                             "See console for details.", tone='error')
         except Exception as e:
-            messagebox.showerror("Export failed", str(e), parent=root)
+            theme.dialog(root, "Export failed", str(e), tone='error')
 
     def import_settings_action():
         source = filedialog.askdirectory(
@@ -161,21 +160,24 @@ def run_settings_window():
         )
         if not source:
             return
-        if not messagebox.askyesno(
-            "Restore settings?",
-            f"Restore settings from:\n{source}\n\nYour current settings will be overwritten.",
-            parent=root, icon='warning',
-        ):
+        if theme.dialog(
+            root, "Restore settings?",
+            f"Restore settings from:\n{source}\n\n"
+            "Your current settings will be overwritten.",
+            buttons=('Restore', 'Cancel'), danger=True, tone='warn',
+        ) != 'Restore':
             return
         try:
             from .settings_io import import_settings
             if import_settings(source) == 0:
-                messagebox.showinfo("Restored", "Settings restored. Restart the app to apply.", parent=root)
+                theme.dialog(root, "Restored", "Settings restored.",
+                             tone='ok', chip_text=theme.RESTART_NOTE)
                 root.destroy()
             else:
-                messagebox.showerror("Restore failed", "See console for details.", parent=root)
+                theme.dialog(root, "Restore failed",
+                             "See console for details.", tone='error')
         except Exception as e:
-            messagebox.showerror("Restore failed", str(e), parent=root)
+            theme.dialog(root, "Restore failed", str(e), tone='error')
 
     left = tk.Frame(bottom, bg=pal['bg'])
     left.pack(side='left')
@@ -266,13 +268,14 @@ def _apply_style(root):
                         selectbackground=pal['selection'],
                         selectforeground=pal['fg'],
                         borderwidth=0, font=theme.font(9))
-        style.configure('TNotebook', background=pal['bg'], borderwidth=0)
+        style.configure('TNotebook', background=pal['bg'], borderwidth=0,
+                        tabmargins=[px(8), px(6), px(8), 0])
         style.configure('TNotebook.Tab', background=pal['bg'], foreground=pal['fg_dim'],
                         lightcolor=pal['bg'], darkcolor=pal['bg'],
-                        padding=[px(12), px(5)], font=theme.font(10))
+                        padding=[px(14), px(6)], font=theme.font(10))
         style.map('TNotebook.Tab',
-                  background=[('selected', pal['bg_raised'])],
-                  foreground=[('selected', pal['fg'])],
+                  background=[('selected', pal['bg_raised']), ('active', pal['bg_hover'])],
+                  foreground=[('selected', pal['fg']), ('active', pal['fg'])],
                   lightcolor=[('selected', pal['bg_raised'])])
         style.configure('TFrame', background=pal['bg'])
         style.configure('TLabel', background=pal['bg'], foreground=pal['fg'])
@@ -348,7 +351,7 @@ def _check(tab, path, label, var, row_index):
     parent = tab['inner']
     row_frame = tk.Frame(parent, bg=theme.palette()['bg'])
     row_frame.pack(fill='x', padx=px(12), pady=px(2))
-    cb = ttk.Checkbutton(row_frame, text=label, variable=var)
+    cb = theme.checkbox(row_frame, label, var)
     cb.pack(side='left', anchor='w')
     row_index[path] = {'widgets': [row_frame], 'label': label, 'tab_index': tab['tab_index']}
     return cb

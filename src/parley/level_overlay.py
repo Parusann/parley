@@ -1,16 +1,16 @@
 # level_overlay.py
-# Frameless always-on-top "glass" pill shown while recording/processing: a
-# scrolling voice waveform (recent mic-level history) beside a status /
-# streaming-text label. On Windows 11 it uses real acrylic blur-behind and
-# rounded corners; elsewhere it falls back to a plain translucent panel.
-# Runs its own tk mainloop on a daemon thread; all public methods are
-# thread-safe via root.after(). All colors/metrics come from theme.py; the
-# waveform fades older bars toward the quiet color (comet trail) using a
-# color ramp precomputed once — the per-frame draw cost is unchanged.
+# Frameless always-on-top glass pill shown while recording/processing: a
+# gradient mic orb that pulses with your voice, a scrolling waveform colored
+# along the violet→blue→cyan accent family, and a status / streaming-text
+# label that fits by measurement (never a fixed character clip). On Windows 11
+# the glass is real acrylic blur-behind (theme.apply_pill_glass); elsewhere it
+# falls back to plain translucency. Runs its own tk mainloop on a daemon
+# thread; all public methods are thread-safe via root.after(). All colors and
+# metrics come from theme.py; the waveform ramp and every glow blend are
+# precomputed once — the per-frame draw cost is unchanged from the flat design.
 
 import logging
 import math
-import platform
 import threading
 from collections import deque
 from typing import Callable, Optional
@@ -20,18 +20,13 @@ from . import theme
 logger = logging.getLogger(__name__)
 
 
-def _lerp_hex(a: str, b: str, t: float) -> str:
-    """Blend two #rrggbb colors; used once at init to build the trail ramp."""
-    av = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
-    bv = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
-    return '#%02x%02x%02x' % tuple(round(x + (y - x) * t) for x, y in zip(av, bv))
-
-
 class LevelOverlay:
     LEVEL_AMP = 25.0
     UPDATE_HZ = 30
     FLASH_MS = 400
     ERROR_HOLD_MS = 2400  # failures need reading time; tray balloons are unreliable
+    SLIDE_PX = 14         # show/hide travel distance (design px)
+    SLIDE_STEPS = 6       # × ~15 ms per step ≈ 90 ms of motion
 
     POSITIONS = {
         'bottom-center': 'BC',
@@ -50,6 +45,7 @@ class LevelOverlay:
         self.position = position if position in self.POSITIONS else 'bottom-center'
 
         pal = theme.palette()
+        self._pal = pal
         self.BG = pal['bg']
         self.BAR = pal['wave_live']
         self.DIM = pal['wave_quiet']
@@ -58,17 +54,21 @@ class LevelOverlay:
         self.ERROR = pal['error']
 
         # Physical-pixel metrics (theme.px handles monitor scale).
-        self.WIDTH = theme.px(356)
+        self.WIDTH = theme.px(384)
         self.HEIGHT = theme.px(48)
-        self.WAVE_AREA_PX = theme.px(168)
+        self.ORB_AREA_PX = theme.px(44)
+        self.WAVE_AREA_PX = theme.px(150)
         self.BOTTOM_OFFSET_PX = theme.px(96)
         self.BAR_PITCH = theme.px(5)   # px between waveform bar centers
         self.BAR_W = theme.px(3)       # waveform bar width
+        self.ORB_R = theme.px(13)      # mic orb radius
 
         self.root: Optional[object] = None
+        self._orb_canvas = None
         self._level_canvas = None
         self._text_var = None
         self._text_label = None
+        self._text_font = None      # tkfont.Font, created on the tk thread
         self._thread = None
         self._ready = threading.Event()
         self._mode = 'hidden'
@@ -79,16 +79,30 @@ class LevelOverlay:
         self._reduced_motion = theme.reduced_motion()
         # Rolling mic-level history that becomes the scrolling waveform.
         self._wave = deque(maxlen=max(8, (self.WAVE_AREA_PX - theme.px(12)) // self.BAR_PITCH))
-        # Comet-trail ramp: oldest bar sits near the quiet color, newest is full
-        # accent. Precomputed so _draw never blends colors per frame.
-        n = self._wave.maxlen
-        self._ramp = [_lerp_hex(self.DIM, self.BAR, 0.35 + 0.65 * i / max(1, n - 1))
-                      for i in range(n)]
+        # Gradient comet trail: the newest bar carries the brightest family
+        # stop, history fades toward the quiet color. Precomputed by theme so
+        # _draw never blends colors per frame.
+        self._ramp = theme.wave_ramp(self._wave.maxlen, pal)
         self._pulse_phase = 0.0
-        # Tracks the pending _update_loop after() callback so a new mode switch
-        # cancels the old animation loop instead of stacking a second one (which
-        # would multiply redraw/CPU load over many record cycles).
+        # Room the streaming label actually has, in physical px — the fit
+        # measurement target that replaces the old fixed 31-char clip.
+        self._text_avail_px = (self.WIDTH - self.ORB_AREA_PX - self.WAVE_AREA_PX
+                               - theme.px(10) - theme.px(14))
+        # Final on-screen position (set by _position); slide animation offsets
+        # from it and always lands back on it.
+        self._fx = self._fy = 0
+        # Pulse ring blends, precomputed like the ramp — never mix() per frame.
+        self._pulse_colors = [(2, theme.mix(self.BG, pal['glow'], 0.10)),
+                              (1, theme.mix(self.BG, pal['glow'], 0.18)),
+                              (0, theme.mix(self.BG, pal['glow'], 0.30))]
+        # Tracks pending after() callbacks so a new mode switch cancels the old
+        # animation loop instead of stacking a second one (which would multiply
+        # redraw/CPU load over many record cycles). Same discipline for the
+        # typewriter chain and the flash hide-timer.
         self._update_after_id = None
+        self._slide_after_id = None
+        self._type_after_id = None
+        self._flash_after_id = None
         self._available = self._check_tk()
 
     def _check_tk(self) -> bool:
@@ -124,8 +138,13 @@ class LevelOverlay:
     def flash_failure(self, message: str = None):
         self._flash(self.ERROR, message)
 
+    # Called from the streaming/recognizer thread — all state mutation is
+    # marshalled onto the tk thread so it can't race a typewriter tick.
     def set_streaming_text(self, text: str):
         new_text = (text or '').strip()
+        self._call(lambda: self._apply_streaming_text(new_text))
+
+    def _apply_streaming_text(self, new_text: str):
         if new_text == self._streaming_text:
             return
         if not new_text.startswith(self._streaming_text):
@@ -134,9 +153,43 @@ class LevelOverlay:
         # Reduced motion: no typewriter reveal — text lands whole.
         if self._reduced_motion:
             self._displayed_chars = len(new_text)
-            self._call(self._refresh_text)
+            self._refresh_text()
         else:
-            self._call(self._tick_typewriter)
+            self._cancel_typewriter()
+            self._tick_typewriter()
+
+    def _cancel_typewriter(self):
+        if self._type_after_id is not None:
+            try:
+                self.root.after_cancel(self._type_after_id)
+            except Exception:
+                pass
+            self._type_after_id = None
+
+    # Fit text to the label's real pixel width: show the freshest tail with a
+    # leading ellipsis when it overflows. Binary search on the font measure —
+    # runs only when text changes, never per frame.
+    def _fit_tail(self, text: str) -> str:
+        if not self._text_font or not text:
+            return text
+        # Prefer the label's real mapped width over the build-time estimate —
+        # off-by-a-few estimates clip the final characters.
+        try:
+            w = self._text_label.winfo_width()
+            if w > 10:
+                self._text_avail_px = w - theme.px(2)
+        except Exception:
+            pass
+        if self._text_font.measure(text) <= self._text_avail_px:
+            return text
+        lo, hi = 1, len(text)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if self._text_font.measure('…' + text[-mid:]) <= self._text_avail_px:
+                lo = mid
+            else:
+                hi = mid - 1
+        return '…' + text[-lo:]
 
     def _tick_typewriter(self):
         if not self._text_var or self._mode not in ('recording', 'processing'):
@@ -145,18 +198,18 @@ class LevelOverlay:
         if self._displayed_chars >= len(target):
             return
         self._displayed_chars = min(len(target), self._displayed_chars + 3)
-        visible = target[:self._displayed_chars]
-        display = '…' + visible[-31:] if len(visible) > 32 else visible
         try:
-            self._text_var.set(display)
+            self._text_var.set(self._fit_tail(target[:self._displayed_chars]))
             self._text_label.configure(fg=self.TEXT)
         except Exception:
             return
         if self._displayed_chars < len(target):
             try:
-                self.root.after(30, self._tick_typewriter)
+                self._type_after_id = self.root.after(30, self._tick_typewriter)
             except Exception:
-                pass
+                self._type_after_id = None
+        else:
+            self._type_after_id = None
 
     def set_position(self, name: str):
         if name not in self.POSITIONS:
@@ -181,28 +234,125 @@ class LevelOverlay:
             logger.debug(f"Overlay call failed: {e}")
 
     def _set_mode(self, mode: str):
+        prev = self._mode
         self._mode = mode
+        self._cancel_slide()
+        self._cancel_flash_hold()
         if mode == 'hidden':
-            self._streaming_text = ''
-            self._displayed_chars = 0
-            self._refresh_text()
-            try: self.root.withdraw()
-            except Exception: pass
+            # Text is cleared in _withdraw (after the slide) so the pill
+            # doesn't flip to 'Listening…' while sliding away.
+            self._slide_out()
         else:
-            try: self.root.deiconify()
-            except Exception: pass
+            try:
+                self.root.deiconify()
+            except Exception:
+                pass
+            if prev == 'hidden':
+                self._slide_in()
+            else:
+                self._snap_to_final()
             self._smoothed = 0.0
             self._pulse_phase = 0.0
             self._wave.clear()
             if mode == 'recording':
+                # A new dictation starts clean even when the previous flash
+                # never passed through 'hidden'.
+                self._cancel_typewriter()
+                self._streaming_text = ''
                 self._displayed_chars = 0
             # Cancel any in-flight loop before starting a fresh one.
             if self._update_after_id is not None:
-                try: self.root.after_cancel(self._update_after_id)
-                except Exception: pass
+                try:
+                    self.root.after_cancel(self._update_after_id)
+                except Exception:
+                    pass
                 self._update_after_id = None
             self._update_loop()
             self._refresh_text()
+
+    # --- show/hide slide (the only animation not tied to the level loop) ----
+    # The pill slides toward/away from its screen edge. Geometry moves the
+    # whole window — acrylic included — so there is never a frosted ghost the
+    # way an alpha fade would leave behind. Gated on reduced motion.
+
+    def _slide_dir(self) -> int:
+        return -1 if self.POSITIONS[self.position].startswith('T') else 1
+
+    def _cancel_slide(self):
+        if self._slide_after_id is not None:
+            try:
+                self.root.after_cancel(self._slide_after_id)
+            except Exception:
+                pass
+            self._slide_after_id = None
+
+    def _snap_to_final(self):
+        try:
+            self.root.geometry(f"+{self._fx}+{self._fy}")
+        except Exception:
+            pass
+
+    def _slide_in(self):
+        if self._reduced_motion:
+            self._snap_to_final()
+            return
+        travel = theme.px(self.SLIDE_PX) * self._slide_dir()
+        self._animate_slide(start_off=travel, end_off=0, step=0, on_done=None)
+
+    def _slide_out(self):
+        if self._reduced_motion or not self._is_visible():
+            self._withdraw()
+            return
+        travel = theme.px(self.SLIDE_PX) * self._slide_dir()
+        self._animate_slide(start_off=0, end_off=travel, step=0,
+                            on_done=self._withdraw)
+
+    def _is_visible(self) -> bool:
+        try:
+            return self.root.state() != 'withdrawn'
+        except Exception:
+            return False
+
+    def _cancel_flash_hold(self):
+        if self._flash_after_id is not None:
+            try:
+                self.root.after_cancel(self._flash_after_id)
+            except Exception:
+                pass
+            self._flash_after_id = None
+
+    def _withdraw(self):
+        try:
+            self.root.withdraw()
+        except Exception:
+            pass
+        self._snap_to_final()
+        self._cancel_typewriter()
+        self._streaming_text = ''
+        self._displayed_chars = 0
+        self._refresh_text()
+
+    def _animate_slide(self, start_off, end_off, step, on_done):
+        # Ease-out cubic between the two offsets; ~15 ms cadence keeps the
+        # motion smooth without competing with the 30 Hz level loop.
+        if step > self.SLIDE_STEPS:
+            if end_off == 0:
+                self._snap_to_final()
+            self._slide_after_id = None
+            if on_done:
+                on_done()
+            return
+        t = step / self.SLIDE_STEPS
+        ease = 1 - (1 - t) ** 3
+        off = round(start_off + (end_off - start_off) * ease)
+        try:
+            self.root.geometry(f"+{self._fx}+{self._fy + off}")
+            self._slide_after_id = self.root.after(
+                15, lambda: self._animate_slide(start_off, end_off, step + 1, on_done))
+        except Exception:
+            self._slide_after_id = None
+            if on_done:
+                on_done()
 
     def _refresh_text(self):
         if not self._text_var:
@@ -212,10 +362,7 @@ class LevelOverlay:
             self._text_var.set('Transcribing…')
             self._text_label.configure(fg=self.TEXT_DIM)
         elif self._streaming_text:
-            text = self._streaming_text
-            if len(text) > 32:
-                text = '…' + text[-31:]
-            self._text_var.set(text)
+            self._text_var.set(self._fit_tail(self._streaming_text))
             self._text_label.configure(fg=self.TEXT)
         else:
             self._text_var.set('Listening…')
@@ -230,25 +377,35 @@ class LevelOverlay:
                 return
             self._mode = 'flash'
             self._flash_color = color
+            # A slide-out may be mid-flight (hide() just before this flash) —
+            # cancel it or its deferred _withdraw would hide the flash.
+            self._cancel_slide()
+            self._cancel_flash_hold()
             if message and self._text_var:
                 try:
-                    self._text_var.set(message)
+                    self._text_var.set(self._fit_tail(message))
                     self._text_label.configure(fg=self.ERROR if color == self.ERROR else self.TEXT)
-                except Exception: pass
-            try: self.root.deiconify()
-            except Exception: pass
+                except Exception:
+                    pass
+            try:
+                self.root.deiconify()
+            except Exception:
+                pass
+            self._snap_to_final()
             self._draw(1.0, override_color=color)
             # Hold a message flash longer so it's actually readable.
             hold = self.ERROR_HOLD_MS if message else self.FLASH_MS
             try:
-                self.root.after(hold, lambda: self._set_mode('hidden'))
+                self._flash_after_id = self.root.after(
+                    hold, lambda: self._set_mode('hidden'))
             except Exception:
-                pass
+                self._flash_after_id = None
         self._call(do)
 
     def _run(self):
         try:
             import tkinter as tk
+            import tkinter.font as tkfont
             self.root = tk.Tk()
             self.root.withdraw()
             self.root.overrideredirect(True)
@@ -261,9 +418,14 @@ class LevelOverlay:
             outer = tk.Frame(self.root, bg=self.BG, bd=0, highlightthickness=0)
             outer.pack(fill='both', expand=True)
 
+            self._orb_canvas = tk.Canvas(outer, width=self.ORB_AREA_PX, height=self.HEIGHT,
+                                         bg=self.BG, highlightthickness=0, borderwidth=0)
+            self._orb_canvas.pack(side='left', padx=(theme.px(8), 0))
+            self._draw_orb()
+
             self._level_canvas = tk.Canvas(outer, width=self.WAVE_AREA_PX, height=self.HEIGHT,
                                            bg=self.BG, highlightthickness=0, borderwidth=0)
-            self._level_canvas.pack(side='left', padx=(theme.px(12), 0))
+            self._level_canvas.pack(side='left', padx=(theme.px(2), 0))
 
             self._text_var = tk.StringVar(value='')
             self._text_label = tk.Label(outer, textvariable=self._text_var,
@@ -271,10 +433,11 @@ class LevelOverlay:
                                         font=theme.font(9),
                                         anchor='w')
             self._text_label.pack(side='left', fill='x', expand=True,
-                                  padx=(theme.px(10), theme.px(12)))
+                                  padx=(theme.px(8), theme.px(12)))
+            self._text_font = tkfont.Font(font=theme.font(9))
 
             self._position()
-            self._apply_glass()
+            theme.apply_pill_glass(self.root)
             self._make_click_through()
             self._ready.set()
             self.root.mainloop()
@@ -282,6 +445,36 @@ class LevelOverlay:
             logger.warning(f"Level overlay crashed: {e}")
             self._available = False
             self._ready.set()
+
+    # The static mic orb (body + glyph) is drawn once; only the pulse ring
+    # behind it is repainted by the level loop.
+    def _draw_orb(self):
+        c = self._orb_canvas
+        if not c:
+            return
+        cx = self.ORB_AREA_PX / 2 + theme.px(2)
+        cy = self.HEIGHT / 2
+        theme.orb(c, cx, cy, self.ORB_R, self._pal, surface=self.BG,
+                  halo=False, tags='orb')
+        theme.mic_glyph(c, cx, cy, self.ORB_R * 0.95, tags='orb')
+
+    # Voice-reactive glow behind the orb: 3 rings whose radius breathes with
+    # the smoothed level. Cheap (3 ovals) and skipped entirely under reduced
+    # motion or while a flash is showing.
+    def _draw_pulse(self, level: float):
+        c = self._orb_canvas
+        if not c or self._reduced_motion:
+            return
+        c.delete('pulse')
+        cx = self.ORB_AREA_PX / 2 + theme.px(2)
+        cy = self.HEIGHT / 2
+        base = self.ORB_R + theme.px(2)
+        swell = theme.px(6) * min(1.0, level)
+        for i, fill in self._pulse_colors:
+            r = base + swell + theme.px(2) * i
+            c.create_oval(cx - r, cy - r, cx + r, cy + r, width=0,
+                          fill=fill, tags='pulse')
+        c.tag_lower('pulse', 'orb')
 
     def _position(self):
         try:
@@ -305,72 +498,17 @@ class LevelOverlay:
             else:
                 x = x_margin
 
+            self._fx, self._fy = x, y
             self.root.geometry(f"{self.WIDTH}x{self.HEIGHT}+{x}+{y}")
         except Exception as e:
             logger.debug(f"Position failed: {e}")
 
-    # All win32 styling must target the top-level *wrapper* hwnd. Tk's
-    # winfo_id() returns the client child; giving that child WS_EX_LAYERED
-    # without initializing a layered surface makes every widget invisible.
-    def _top_hwnd(self):
-        import ctypes
-        child = self.root.winfo_id()
-        return ctypes.windll.user32.GetParent(child) or child
-
-    # Glass styling. Windows 11: acrylic blur-behind + rounded corners. The BG
-    # color is declared as the layered transparent color, so every BG pixel is
-    # replaced by the tinted blur while bars/text stay solid. If acrylic isn't
-    # available the window keeps an opaque BG with plain alpha translucency —
-    # never punch color-key holes without a blur backdrop behind them.
-    def _apply_glass(self):
-        if platform.system() != 'Windows':
-            try: self.root.attributes('-alpha', 0.93)
-            except Exception: pass
-            return
-        try:
-            import ctypes
-            user32 = ctypes.windll.user32
-            hwnd = self._top_hwnd()
-
-            # Rounded corners (Win11+; harmless no-op on Win10)
-            try:
-                pref = ctypes.c_int(2)  # DWMWCP_ROUND
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(pref),
-                                                           ctypes.sizeof(pref))
-            except Exception:
-                pass
-
-            class ACCENTPOLICY(ctypes.Structure):
-                _fields_ = [('AccentState', ctypes.c_uint),
-                            ('AccentFlags', ctypes.c_uint),
-                            ('GradientColor', ctypes.c_uint),
-                            ('AnimationId', ctypes.c_uint)]
-
-            class WCADATA(ctypes.Structure):
-                _fields_ = [('Attribute', ctypes.c_uint),
-                            ('Data', ctypes.c_void_p),
-                            ('SizeOfData', ctypes.c_size_t)]
-
-            accent = ACCENTPOLICY(4, 2, theme.acrylic_tint(), 0)  # ACCENT_ENABLE_ACRYLICBLURBEHIND
-            data = WCADATA(19,  # WCA_ACCENT_POLICY
-                           ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p),
-                           ctypes.sizeof(accent))
-            ok = user32.SetWindowCompositionAttribute(ctypes.c_void_p(hwnd), ctypes.byref(data))
-            if ok:
-                self.root.attributes('-transparentcolor', self.BG)
-            else:
-                self.root.attributes('-alpha', 0.93)
-        except Exception as e:
-            logger.debug(f"Glass styling unavailable, using plain translucency: {e}")
-            try: self.root.attributes('-alpha', 0.93)
-            except Exception: pass
-
     def _make_click_through(self):
-        if not self.click_through or platform.system() != 'Windows':
+        if not self.click_through or not theme.IS_WIN:
             return
         try:
             import ctypes
-            hwnd = self._top_hwnd()
+            hwnd = theme._top_hwnd(self.root)
             GWL_EXSTYLE = -20
             WS_EX_LAYERED = 0x80000
             WS_EX_TRANSPARENT = 0x20
@@ -409,6 +547,7 @@ class LevelOverlay:
         self._smoothed = self._smoothed * 0.45 + target * 0.55
         self._wave.append(self._smoothed)
         self._draw(self._smoothed)
+        self._draw_pulse(self._smoothed)
 
         try:
             self._update_after_id = self.root.after(int(1000 / self.UPDATE_HZ), self._update_loop)
@@ -416,9 +555,9 @@ class LevelOverlay:
             self._update_after_id = None
 
     # Draws the scrolling waveform: newest level enters at the right edge and
-    # carries the brightest color; history fades toward the quiet color.
-    # Rounded line caps make each bar a soft pill rather than a hard block.
-    # override_color (flash) paints a full static arch instead of live history.
+    # carries the brightest gradient stop; history fades toward the quiet
+    # color. Rounded line caps make each bar a soft pill rather than a hard
+    # block. override_color (flash) paints a full static arch instead.
     def _draw(self, level: float, override_color: Optional[str] = None):
         if not self._level_canvas:
             return

@@ -61,12 +61,8 @@ def _run_welcome(on_close, hotkey_label):
     theme.ensure_dpi_aware()
     root = tk.Tk()
     pal = theme.init_window(root, "Welcome to Parley")
-    root.geometry(f"{px(560)}x{px(480)}")
+    root.geometry(f"{px(560)}x{px(520)}")
     root.resizable(False, False)
-    try:
-        root.attributes('-topmost', True)
-    except Exception:
-        pass
 
     container = tk.Frame(root, bg=pal['bg'])
     container.pack(fill='both', expand=True, padx=px(GAP_XL), pady=px(20))
@@ -110,14 +106,8 @@ def _run_welcome(on_close, hotkey_label):
     from . import autostart
     autostart_var = tk.BooleanVar(value=False)
     if autostart.is_supported():
-        cb = tk.Checkbutton(
-            container, variable=autostart_var,
-            text="  Start Parley automatically when I log in",
-            bg=pal['bg'], fg=pal['fg'], selectcolor=pal['bg_input'],
-            activebackground=pal['bg'], activeforeground=pal['fg'],
-            font=theme.font(9), anchor='w', bd=0, highlightthickness=0,
-        )
-        cb.pack(anchor='w', pady=(px(10), 0))
+        theme.checkbox(container, "Start Parley automatically when I log in",
+                       autostart_var, pal).pack(anchor='w', pady=(px(10), 0))
 
     btn_frame = tk.Frame(container, bg=pal['bg'])
     btn_frame.pack(fill='x', pady=(px(GAP_L), 0))
