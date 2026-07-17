@@ -300,6 +300,8 @@ class SystemTray:
 
             # ── Windows & everyday actions ──
             menu_items += [
+                # default=True: left-clicking the tray icon opens the Hub.
+                pystray.MenuItem("Hub...", self._open_hub, default=True),
                 pystray.MenuItem("Settings...", self._open_settings_window),
                 pystray.MenuItem("Hotkey cheat sheet...", self._open_cheat_sheet),
                 pystray.MenuItem("Transcript history...", self._open_history_window),
@@ -564,6 +566,17 @@ class SystemTray:
                 self.logger.error(f"Bundle logs failed: {e}")
                 self.notify(f"Bundle failed: {e}")
         threading.Thread(target=work, daemon=True, name='bundle-logs').start()
+
+    def _open_hub(self, icon=None, item=None):
+        # hub_deps is injected by main.py once the live components exist;
+        # absent (e.g. a bare --test run) the item is a silent no-op.
+        deps = getattr(self, 'hub_deps', None)
+        if deps:
+            try:
+                from . import hub
+                hub.show_hub(deps)
+            except Exception as e:
+                self.logger.error(f"Failed to open hub: {e}")
 
     def _open_add_word_dialog(self, icon=None, item=None):
         try:

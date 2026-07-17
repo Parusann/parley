@@ -591,6 +591,20 @@ def main():
         config_manager.print_startup_hotkey_instructions()
         print("   [CTRL+C] to quit", flush=True)
 
+        # The Hub — the launch-time window (status, latency, live keybinds).
+        # Wired here because its deps are live objects: tray, state, listener.
+        from . import hub
+        hub_deps = {
+            'config_manager': config_manager,
+            'state_manager': state_manager,
+            'hotkey_listener': hotkey_listener,
+            'transforms_manager': getattr(state_manager, 'transforms_manager', None),
+            'restart_app': system_tray._restart_application_from_tray,
+        }
+        system_tray.hub_deps = hub_deps
+        if (config_manager.config.get('hub') or {}).get('show_on_startup', True):
+            hub.show_hub(hub_deps)
+
         try:
             from .onboarding_tutorial import needs_tutorial, show_console_welcome
             from .utils import beautify_hotkey

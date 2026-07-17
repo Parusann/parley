@@ -374,6 +374,13 @@ system_tray: # System Tray Settings
     # Tooltip text when hovering over tray icon
     tooltip: Parley
 
+hub: # The Parley Hub window
+    # The window that opens with the app: live status lights, dictation
+    # latency + recent transcripts, quick actions, and the keybind editor
+    # (changes apply instantly — no restart). Also reachable any time from
+    # the tray. false = launch silent to the tray as before.
+    show_on_startup: true
+
 console: # Console Window Management (parley-hideable.exe only)
     # Hide console window after startup (requires system tray)
     start_hidden: false
