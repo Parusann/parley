@@ -78,6 +78,24 @@ def send_event(kind: str, state: str, cfg: dict) -> None:
     threading.Thread(target=_fire, daemon=True, name='router-event').start()
 
 
+# Synchronous reachability check for the Hub's "Amadeus link" light. The
+# /health URL is derived from the configured /ask endpoint (same one-setting
+# rule as send_event). Never raises — the hub shows a light, not an error.
+def health(cfg: dict, timeout: float = 2.0) -> bool:
+    cfg = cfg or {}
+    ask_endpoint = cfg.get('endpoint') or DEFAULT_ENDPOINT
+    health_endpoint = ask_endpoint.rsplit('/', 1)[0] + '/health'
+    parsed = urllib.parse.urlsplit(health_endpoint)
+    try:
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port or 80, timeout=timeout)
+        conn.request('GET', parsed.path or '/health')
+        status = conn.getresponse().status
+        conn.close()
+        return status == 200
+    except Exception:
+        return False
+
+
 # Runs entirely on the daemon thread. Every outcome — success, connection
 # refused, timeout, non-JSON body — terminates here; nothing propagates back
 # into the dictation pipeline.
