@@ -526,7 +526,10 @@ class StateManager:
             if self.level_overlay:
                 self.level_overlay.show_processing()
 
+            _transcribe_t0 = time.time()
             transcribed_text = self.whisper_engine.transcribe_audio(audio_data)
+            # Real transcription latency, surfaced in the Hub's dictation panel.
+            transcribe_latency_ms = int((time.time() - _transcribe_t0) * 1000)
 
             if not transcribed_text:
                 self.system_tray.notify("Transcription was empty (silence or noise only).")
@@ -628,7 +631,8 @@ class StateManager:
                     duration_seconds=duration,
                     app=fg.get('exe', ''),
                 )
-                record_transcript(transcribed_text, app=fg.get('exe', ''), duration_s=duration)
+                record_transcript(transcribed_text, app=fg.get('exe', ''), duration_s=duration,
+                                  latency_ms=transcribe_latency_ms)
                 audit_enabled = (self.config_manager.config.get('audit') or {}).get('enabled', False)
                 audit_record('delivered', transcribed_text, fg.get('exe', ''), audit_enabled)
                 self._maybe_restart_continuous()

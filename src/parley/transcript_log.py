@@ -27,7 +27,10 @@ _write_lock = threading.Lock()
 
 # Called from state_manager._transcription_pipeline after every successful
 # delivery. Silent no-op for empty text (which means a failed/silent recording).
-def record_transcript(text: str, app: str = '', duration_s: float = 0.0):
+# latency_ms is the wall-clock transcription time (None on paths that don't
+# measure one, e.g. streaming/assistant — readers must tolerate its absence).
+def record_transcript(text: str, app: str = '', duration_s: float = 0.0,
+                      latency_ms: int | None = None):
     if not text:
         return
     entry = {
@@ -37,6 +40,8 @@ def record_transcript(text: str, app: str = '', duration_s: float = 0.0):
         'duration_s': round(duration_s, 2),
         'chars': len(text),
     }
+    if latency_ms is not None:
+        entry['latency_ms'] = int(latency_ms)
     path = Path(get_user_app_data_path()) / _LOG_FILE
     try:
         with _write_lock:
