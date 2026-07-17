@@ -5,7 +5,8 @@
 #
 # Layout:
 #   • Top: search box (Ctrl+F to focus) that hides/shows rows across all tabs
-#   • Middle: Notebook with 4 tabs — General, Audio, Hotkeys, Post-process
+#   • Middle: Notebook with 3 tabs — General, Audio, Post-process
+#     (keybinds live in the Hub window, where they apply without a restart)
 #   • Bottom-left: Backup… / Restore… / Reset-to-defaults
 #   • Bottom-right: Save / Cancel
 #
@@ -91,7 +92,6 @@ def run_settings_window():
 
     _build_general_tab(nb, cm, vars_, row_index)
     _build_audio_tab(nb, cm, vars_, row_index)
-    _build_hotkeys_tab(nb, cm, vars_, row_index)
     _build_postprocess_tab(nb, cm, vars_, row_index)
 
     sep = tk.Frame(root, bg=pal['border'], height=px(1))
@@ -106,8 +106,9 @@ def run_settings_window():
             root, "Saved",
             "Settings saved.\n\n"
             "Formatting and post-processing changes apply on your next "
-            "dictation. Hotkey, model, and audio-device changes need a "
-            "restart (tray → Restart Parley).",
+            "dictation. Model and audio-device changes need a restart "
+            "(tray → Restart Parley). Keybinds live in the Hub and apply "
+            "instantly.",
             tone='ok', chip_text=theme.RESTART_NOTE,
         )
         root.destroy()
@@ -416,12 +417,6 @@ def _build_general_tab(nb, cm, vars_, row_index):
     vars_['whisper.language'] = v
     _row(tab, 'whisper.language', 'Language', lambda p: _combo(p, v, langs), row_index)
 
-    modes = ['toggle', 'push_to_talk']
-    v = tk.StringVar(value=_v(cfg, 'hotkey', 'recording_mode', default='toggle'))
-    vars_['hotkey.recording_mode'] = v
-    _row(tab, 'hotkey.recording_mode', 'Recording mode',
-         lambda p: _combo(p, v, modes), row_index)
-
     devs = ['cpu', 'cuda']
     v = tk.StringVar(value=_v(cfg, 'whisper', 'device', default='cpu'))
     vars_['whisper.device'] = v
@@ -500,30 +495,6 @@ def _build_audio_tab(nb, cm, vars_, row_index):
     vars_['audio_feedback.enabled'] = v
     _check(tab, 'audio_feedback.enabled',
            'Audio feedback sounds (start / stop beeps)', v, row_index)
-
-
-def _build_hotkeys_tab(nb, cm, vars_, row_index):
-    import tkinter as tk
-    tab = _frame(nb, 'Hotkeys', row_index)
-    cfg = cm.config
-
-    pairs = [
-        ('hotkey.recording_hotkey', 'Record hotkey'),
-        ('hotkey.stop_key', 'Stop key'),
-        ('hotkey.auto_send_key', 'Auto-send key'),
-        ('hotkey.cancel_combination', 'Cancel'),
-        ('hotkey.command_hotkey', 'Command mode'),
-        ('hotkey.rephrase_hotkey', 'Rephrase (PTT)'),
-        ('hotkey.pause_hotkey', 'Pause all hotkeys'),
-    ]
-    for path, label in pairs:
-        parts = path.split('.')
-        v = tk.StringVar(value=str(_v(cfg, *parts, default='')))
-        vars_[path] = v
-        _row(tab, path, label, lambda p, var=v: _entry(p, var), row_index)
-
-    _footnote(tab, 'Hotkey changes take effect on next app restart. '
-                   'Format: lowercase modifiers separated by + (e.g. "ctrl+win+space").')
 
 
 def _build_postprocess_tab(nb, cm, vars_, row_index):
