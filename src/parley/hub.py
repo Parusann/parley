@@ -282,6 +282,16 @@ def _run(deps):
     def _set_error(name, message):
         bind_rows[name][3].configure(text=message or '')
 
+    def _persist_bind(name, value):
+        # The assistant key is the router's hotkey (router.hotkey), not part of
+        # the hotkey.* block — the listener merely mirrors it at boot. Writing
+        # hotkey.assistant_hotkey would apply live but silently revert on the
+        # next restart (and be stripped as an unknown key).
+        if name == 'assistant_hotkey':
+            cm.update_user_setting('router', 'hotkey', value)
+        else:
+            cm.update_user_setting('hotkey', name, value)
+
     def _apply_bind(name, combo):
         """Persist + live-apply one bind; roll back so yaml and the live
         listener can never disagree. Runs on the tk thread."""
@@ -291,11 +301,11 @@ def _run(deps):
         clash = find_conflict(name, combo, _current_binds()) if combo else None
         if clash:
             return _set_error(name, f'already used by {clash}')
-        cm.update_user_setting('hotkey', name, combo)
+        _persist_bind(name, combo)
         try:
             listener.change_hotkey_config(name, combo if combo else None)
         except Exception as exc:
-            cm.update_user_setting('hotkey', name, old)
+            _persist_bind(name, old)
             try:
                 listener.change_hotkey_config(name, old if old else None)
             except Exception:

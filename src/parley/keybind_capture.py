@@ -44,20 +44,52 @@ def find_conflict(name: str, candidate: str, binds: dict) -> str | None:
     return None
 
 
+def _read_chord(keyboard, timeout_s: float = 30.0) -> str:
+    """One chord from the LL hook: the union of keys held together, delivered
+    when the last one is released. Unlike keyboard.read_hotkey this supports
+    modifier-only binds ('ctrl', 'alt' — Parley's stop/auto-send defaults).
+    Esc pressed on its own cancels ('')."""
+    done = threading.Event()
+    state = {'down': set(), 'chord': set(), 'result': ''}
+
+    def on_event(ev):
+        name = _canon_key(str(ev.name or ''))
+        if not name:
+            return
+        if ev.event_type == 'down':
+            if name == 'esc' and not state['down']:
+                state['result'] = ''
+                done.set()
+                return
+            state['down'].add(name)
+            state['chord'] |= state['down']
+        elif ev.event_type == 'up':
+            state['down'].discard(name)
+            if state['chord'] and not state['down']:
+                state['result'] = '+'.join(state['chord'])
+                done.set()
+
+    hook = keyboard.hook(on_event)
+    try:
+        done.wait(timeout=timeout_s)
+    finally:
+        keyboard.unhook(hook)
+    return state['result']
+
+
 def capture_combo(on_done, cancel_event: threading.Event) -> None:
-    """Block in a worker thread until one hotkey is pressed; deliver the
-    canonical combo ('' = cancelled via Esc). A set cancel_event discards a
-    late result so an abandoned capture can't fire into a closed dialog."""
+    """Capture one chord on a worker thread and deliver the canonical combo
+    ('' = cancelled/timeout). A set cancel_event discards a late result so an
+    abandoned capture can't fire into a closed dialog."""
 
     def _worker():
         try:
             import keyboard  # LL hook — sees the win key, unlike tk events
-            raw = keyboard.read_hotkey(suppress=False)
+            raw = _read_chord(keyboard)
         except Exception:
             raw = ''
         if cancel_event.is_set():
             return
-        combo = normalize_combo(raw)
-        on_done('' if combo == 'esc' else combo)
+        on_done(normalize_combo(raw))
 
     threading.Thread(target=_worker, name='hub-keycapture', daemon=True).start()
