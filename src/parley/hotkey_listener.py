@@ -278,6 +278,11 @@ class HotkeyListener:
         self._setup_hotkeys()
         self.start_listening()
 
+    def toggle_pause(self):
+        """Public pause/resume for the hub's quick action — same behavior as
+        pressing the pause hotkey."""
+        self._pause_hotkey_pressed()
+
     def is_active(self) -> bool:
         return self.is_listening
 
