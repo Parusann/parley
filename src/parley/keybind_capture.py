@@ -44,11 +44,11 @@ def find_conflict(name: str, candidate: str, binds: dict) -> str | None:
     return None
 
 
-def _read_chord(keyboard, timeout_s: float = 30.0) -> str:
-    """One chord from the LL hook: the union of keys held together, delivered
-    when the last one is released. Unlike keyboard.read_hotkey this supports
-    modifier-only binds ('ctrl', 'alt' — Parley's stop/auto-send defaults).
-    Esc pressed on its own cancels ('')."""
+def _read_chord(events, timeout_s: float = 30.0) -> str:
+    """One chord from an event source exposing hook(cb)/unhook(h) with
+    {event_type, name} events: the union of keys held together, delivered when
+    the last one is released — so modifier-only binds work ('ctrl', 'alt' are
+    Parley's stock stop/auto-send). Esc pressed on its own cancels ('')."""
     done = threading.Event()
     state = {'down': set(), 'chord': set(), 'result': ''}
 
@@ -69,11 +69,11 @@ def _read_chord(keyboard, timeout_s: float = 30.0) -> str:
                 state['result'] = '+'.join(state['chord'])
                 done.set()
 
-    hook = keyboard.hook(on_event)
+    hook = events.hook(on_event)
     try:
         done.wait(timeout=timeout_s)
     finally:
-        keyboard.unhook(hook)
+        events.unhook(hook)
     return state['result']
 
 
@@ -84,8 +84,10 @@ def capture_combo(on_done, cancel_event: threading.Event) -> None:
 
     def _worker():
         try:
-            import keyboard  # LL hook — sees the win key, unlike tk events
-            raw = _read_chord(keyboard)
+            # Parley's own raw WH_KEYBOARD_LL tap. NOT the `keyboard` package:
+            # its hook receives nothing in a process running global_hotkeys.
+            from .platform.windows import hook_events
+            raw = _read_chord(hook_events)
         except Exception:
             raw = ''
         if cancel_event.is_set():
