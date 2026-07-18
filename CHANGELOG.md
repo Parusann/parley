@@ -44,6 +44,12 @@ Parley builds on the excellent MIT-licensed
   scrollbars and consistent Esc-to-close, tray icons are drawn from the
   palette, and everything stays per-monitor DPI aware, Windows 10 safe, and
   OS reduced-motion aware.
+- **The Parley Hub**: a window that opens with the app (toggleable) — live
+  status lights (model, Vulkan server, mic, Ollama, Amadeus link), real
+  per-dictation latency with recent transcripts, quick actions, and a
+  press-to-capture keybind editor covering every bind (including the
+  assistant key) that applies changes instantly, no restart. Keybinds moved
+  out of Settings; the tray icon's left-click opens the Hub.
 - **Per-app rules**: formatting and paste behavior that adapt to the focused
   application (terminals, password fields, code editors).
 - **Voice commands & AI transforms**: hotkey-routed command mode and
