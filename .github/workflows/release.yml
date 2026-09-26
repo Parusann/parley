@@ -82,12 +82,12 @@ jobs:
           if ($buildrs -notmatch "winresource") {
             $patch = @'
 
-    if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
-        let mut res = winresource::WindowsResource::new();
-        res.set_icon("icon.ico");
-        res.compile().expect("Failed to compile Windows resources");
-    }
-'@
+              if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
+                  let mut res = winresource::WindowsResource::new();
+                  res.set_icon("icon.ico");
+                  res.compile().expect("Failed to compile Windows resources");
+              }
+          '@
             $buildrs = $buildrs -replace '(fn main\(\) \{)', "`$1$patch"
             Set-Content "$env:PYAPP_DIR\build.rs" $buildrs -NoNewline
           }
